@@ -1,0 +1,18 @@
+from django.core.exceptions import ValidationError
+from .models import Movie, Hall, Function
+
+"""
+No permitir cargar dos veces la misma película en la misma fecha y sala:
+Asegura la correcta gestión de la cartelera.
+"""
+
+def check_movie_upload(movie):
+    if Movie.object.filter(title=movie):
+        raise ValidationError("Esta película ya ha sido cargada")
+
+
+def check_function_upload(movie, function, hall, function_date, function_time_start, function_time_end,
+                          language, format):
+    if Function.object.filter(movie=movie, function=function, hall=hall, function_time_start=function_time_start,
+                              function_date=function_date, function_time_end=function_time_end, language=language, format=format).exists():
+        raise ValidationError("Esta función ya se ha registrado en el sistema")
