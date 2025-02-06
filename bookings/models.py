@@ -44,3 +44,26 @@ class Ticket(models.Model):
     issued_at = models.DateTimeField(auto_now_add=True)
     is_scanned = models.BooleanField(default=False)
 
+
+class Combo(models.Model):
+
+    """
+    Modelo encargado de gestionar los combos que los clientes pueden comprar junto con la entrada
+    """
+    combo_name = models.CharField(max_length=100)
+    combo_description = models.TextField()
+    combo_price = models.DecimalField(max_digits=10, decimal_places=2)
+    combo_picture = models.ImageField(upload_to="combos/")
+
+class ComboTicket(models.Model):
+
+    """
+    Ticket correspondiente al combo
+    """
+    booking = models.ForeignKey(Booking, on_delete=CASCADE, related_name='combo')
+    combo = models.ForeignKey(Combo, on_delete=CASCADE)
+    quantity = models.IntegerField(blank=True)
+    total_combo_price = models.DecimalField(max_digits=10, decimal_places=2, blank=True)
+    combo_ticket_code = models.CharField(max_length=100, unique=True)
+    issued_at = models.DateTimeField(auto_now_add=True)
+    is_scanned = models.BooleanField(default=False)
