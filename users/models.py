@@ -12,5 +12,9 @@ class CustomUser(AbstractUser):
     y un usuario final o cliente
     """
 
+    email = models.EmailField(unique=True)  # Forzamos a que cada usuario tegna en mail unico
     is_admin = models.BooleanField(default=False)
     is_customer = models.BooleanField(default=True)
+
+
+
