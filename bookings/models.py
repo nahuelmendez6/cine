@@ -21,9 +21,9 @@ class Booking(models.Model):
 
     user = models.ForeignKey(CustomUser, on_delete=CASCADE)
     function = models.ForeignKey(Function, on_delete=CASCADE)
-    total_price = models.DecimalField(max_digits=10, decimal_places=2 ,blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    status = models.CharField(
+    total_price = models.DecimalField(max_digits=10, decimal_places=2 ,blank=True)  # El precio tiene que calcularse
+    created_at = models.DateTimeField(auto_now_add=True)                            # dependiendo de el precio de la
+    status = models.CharField(                                                      # función y la cantidad de tickets
         max_length=20,
         choices=[
             ('pending', 'Pendiente'),
