@@ -39,7 +39,7 @@ class Function(models.Model):
     movie = models.ForeignKey(Movie, on_delete=models.CASCADE)      # una pelicula tendra varias funciones
     function_date = models.DateField()
     function_time_start = models.TimeField(default=datetime.time)
-    function_time_end = models.TimeFielddefault=datetime.time()
+    function_time_end = models.TimeField(default=datetime.time())
     price = models.DecimalField(max_digits=10, decimal_places=2)
     language = models.CharField(max_length=50, choices=[('subtitulada', 'Subtitulada'), ('doblada', 'Doblada')])
     format = models.CharField(max_length=50, choices=[('2D', '2D'), ('3D', '3D'), ('IMAX', 'IMAX')])
