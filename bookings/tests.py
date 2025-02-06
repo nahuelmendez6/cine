@@ -71,7 +71,7 @@ class BookingModelTests(TestCase):
             status='pending'
         )
         self.assertEqual(booking.user.username, 'testuser')
-        self.assertEqual(booking.function.movie_title, 'Película de prueba')
+        self.assertEqual(booking.function.movie.title, 'Película de prueba')
         self.assertEqual(booking.total_price, 100.00)
         self.assertEqual(booking.status, 'pending')
 
