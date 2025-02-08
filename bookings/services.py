@@ -4,6 +4,18 @@ from movies.models import Function
 from users.models import CustomUser
 
 
+
+MAX_TICKETS_PER_USER = 10
+
+
+def generate_ticket_code(user, seat, function):
+    """
+    Genera un codigo único para cada ticker
+    """
+    import uuid
+    return f"{user.id}-{function.id}-{seat.id}-{uuid.uuid4().hex[:6]}"
+
+
 """
 Evitar reservas de asientos que ya están ocupados
 """
@@ -39,7 +51,7 @@ def reserve_seat(user, seat, function):
     """
     Crear el ticker asociado al asiento
     """
-    ticket = Ticket.object.create(
+    ticket = Ticket.objects.create(
         booking=booking,
         seat=seat,
         ticket_code=generate_ticket_code(user, seat, function)
@@ -51,9 +63,27 @@ def reserve_seat(user, seat, function):
 
     return ticket
 
-def generate_ticket_code(user, seat, function):
+
+def validate_ticket_purchase(user, tickets_requested, function):
     """
-    Genera un codigo único para cada ticker
+    Valida y procesa la compra de entradas por un usuario para una función específica
+
+    :param user: El usuario que está realizando la compra.
+    :param function: La función para la cual se están comprando las entradas.
+    :param seats_requested: Lista de asientos seleccionados para la compra
     """
-    import uuid
-    return f"{user.id}-{function.id}-{seat-id}-{uuid.uuid4().hex[:6]}"
+
+    # Contar cuantos tickets ya tiene el usuario para esa funcion
+    existing_tickets = Ticket_objects.filter(booking__user=user, booking__function=function)
+
+    # Validar el límite de tickets
+    if existing_tickets + tickets_requested > MAX_TICKETS_PER_USER:
+        return ValidationError(f"No puedes comprar más de {MAX_TICKETS_PER_USER} para una misma función")
+
+    # Reservar cada asiento
+    tickets = []
+    for seat in seats_requested:
+        ticket = reserve_seat(user, seat, function)
+        tickets.append(ticket)
+
+    return tickets
