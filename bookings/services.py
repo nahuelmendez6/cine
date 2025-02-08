@@ -100,3 +100,34 @@ def validate_ticket_purchase(user, tickets_requested, function):
         tickets.append(ticket)
 
     return tickets
+
+
+def check_seat_availability(booking, function, hall):
+    """
+    Cuenta los asientos reservados para una determinada funcion
+    :param booking: reserva de asientos
+    :param function: funcion de la cual se quiere evaluar la disponibilidad
+    :param hall: sala asociada a la funcion
+    """
+
+    # parametros de prueba, cuando tenga salas cargadas en la base de datos se cambia por consultas en tiempo real
+    hall1_capacity = 150
+    hall2_capacity = 175
+
+    total_booked_seats = Tickets.objects.filter()
+
+
+def release_expired_reservations():
+    """
+    Libera los asientos reservados si el pago no se completó en el tiempo establecido
+    """
+    from bookings.models import Booking
+
+    # Filtrar las reservas pendientes que hayan expirado
+    expired_bookings = Booking.object.filter(status='pending').filter(
+        reserved_at__lt=timezone.now() - timedelta(minutes=15)
+    )
+
+    for booking in expired_bookings:
+        booking.status = 'cancelled'
+        booking.save()
