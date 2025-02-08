@@ -15,6 +15,13 @@ def generate_ticket_code(user, seat, function):
     import uuid
     return f"{user.id}-{function.id}-{seat.id}-{uuid.uuid4().hex[:6]}"
 
+"""
+DEberia agregar una funcion que revise la disponibilidad de asientos
+es decir, si la funcion ya esta agotada o no
+
+"""
+
+
 
 """
 Evitar reservas de asientos que ya están ocupados
@@ -25,6 +32,8 @@ def reserve_seat(user, seat, function):
     Verifica si un asiento esta disponible o reservado para
     una función en específico
     """
+    price_per_ticket = function.price  # Asegúrate de que `function` tenga el atributo `price`
+
     if Ticket.objects.filter(seat=seat, booking__function=function, booking__status=['pending', 'paid']).exists():
         """
         Esta condición verifica que el asiento esté asociado a una reservación (booking) y  una función, también verifica
@@ -45,7 +54,7 @@ def reserve_seat(user, seat, function):
     booking, created = Booking.objects.get_or_create(
         user=user,
         function=function,
-        defaults={'status':'pending'}
+        defaults={'status':'pending', 'total_price': price_per_ticket},
     )
 
     """
@@ -71,18 +80,22 @@ def validate_ticket_purchase(user, tickets_requested, function):
     :param user: El usuario que está realizando la compra.
     :param function: La función para la cual se están comprando las entradas.
     :param seats_requested: Lista de asientos seleccionados para la compra
+    :return: Lista de asientos reservados
     """
 
     # Contar cuantos tickets ya tiene el usuario para esa funcion
-    existing_tickets = Ticket_objects.filter(booking__user=user, booking__function=function)
+    existing_tickets = Ticket.objects.filter(booking__user=user, booking__function=function).count()
+
+    # Contar cuantos asientos se han seleccionado
+    amount_ticket_requested = len(tickets_requested)
 
     # Validar el límite de tickets
-    if existing_tickets + tickets_requested > MAX_TICKETS_PER_USER:
+    if existing_tickets + amount_ticket_requested > MAX_TICKETS_PER_USER:
         return ValidationError(f"No puedes comprar más de {MAX_TICKETS_PER_USER} para una misma función")
 
     # Reservar cada asiento
     tickets = []
-    for seat in seats_requested:
+    for seat in tickets_requested:
         ticket = reserve_seat(user, seat, function)
         tickets.append(ticket)
 
