@@ -7,13 +7,13 @@ Asegura la correcta gestión de la cartelera.
 """
 
 def check_movie_upload(title):
-    if Movie.object.filter(title=title).exists():
+    if Movie.objects.filter(title=title).exists():
         raise ValidationError("Esta película ya ha sido cargada")
 
 
 def check_function_upload(movie, function, hall, function_date, function_time_start, function_time_end,
                           language, format):
-    if Function.object.filter(movie=movie,
+    if Function.objects.filter(movie=movie,
                               function=function,
                               hall=hall,
                               function_time_start=function_time_start,
