@@ -2,7 +2,10 @@ from django.core.exceptions import ValidationError
 from .models import Ticket, Seat, Booking
 from movies.models import Function
 from users.models import CustomUser
-
+from django.core.mail import EmailMessage
+from django.conf import settings
+import qrcode
+import os
 
 
 MAX_TICKETS_PER_USER = 10
@@ -131,3 +134,33 @@ def release_expired_reservations():
     for booking in expired_bookings:
         booking.status = 'cancelled'
         booking.save()
+
+
+def generate_qr_code(ticket):
+    """
+    Genera un código QR para el ticket con información esencial
+    """
+    qr_data = f'Ticket ID: {ticket.id}, Código: {ticket.ticket_code}, Función: {ticket.booking.function}'
+    qr = qrcode.make(qr_data)
+
+    qr_path = f"f{settomgs.MEDIA_ROOT}/qr_codes/ticket_{ticket.id}.png"
+    os.makedirs(os.path.dirname(qr_path), exist_ok=True)
+    qr.save(qr_path)
+
+    return qr_path
+
+
+def send_confirmation_email(ticket, qr_code_path):
+    """
+    Envía un correo de confirmación al usuario con el QR adjunto
+    """
+    subject = "Confirmación de compra - CineApp"
+    message = (f'Hola {ticket.booking.user.username},\n\nTu compra ha sido confirmada para la función "'
+               f'{ticket.booking.function.movie.title}". Adjuntamos tu código QR para el ingreso.\n\n¡Gracias por elegirnos!')
+    email = EmailMessage(subject, message, settings.DEFAULT_FROM_EMAIL, [ticket.booking.user,email])
+
+    # Adjuntar el codigo qr
+    if os.path.exists(qr_code_path):
+        email.attach_file(qr_code_path)
+
+    email.send()
