@@ -24,5 +24,5 @@ class CustomAuthBackend(ModelBackend):
                 user.failed_attemps = 0 # Resetear intentos fallidos
                 user.save()
                 return user
-        except CustomUser.DoesNotExists:
+        except CustomUser.DoesNotExist:
             return None
