@@ -1,9 +1,10 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import AuthView
+
+from .views import MovieViewSet
 
 router = DefaultRouter()
-router.register(r'auth', AuthView, basename='auth')
+router.register(r'movies', MovieViewSet, basename='movies')
 
 urlpatterns = [
     path('', include(router.urls))
