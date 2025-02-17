@@ -10,11 +10,11 @@ class Movie(models.Model):
     """
 
     title = models.CharField(max_length=255)            # titulo de la pelicula
-    poster = models.ImageField(upload_to="posters/")    # posters/fotos de portada
+    poster = models.ImageField(upload_to="posters/", null=True)    # posters/fotos de portada
     synopsis = models.TextField()                       # breve texto descriptivo
     duration = models.IntegerField()                    # duracion en minutos
     genre = models.CharField(max_length=100)            # genero (accion, comedia, animacion...)
-    classification = models.CharField(max_length=50)    # sistema de clasificacion (+18, R)
+    classification = models.CharField(max_length=50, null=True)    # sistema de clasificacion (+18, R)
     trailer_url = models.URLField(blank=True, null=True)    # Enlace a trailer
     date_release = models.DateField()                   # a partir de esta fecha la pelicula se mostrara al cliente
     date_finish = models.DateField()                    # a partir de esta fecha la pelicula se oculta al cliente
