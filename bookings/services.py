@@ -21,16 +21,15 @@ def generate_ticket_code(user, seat, function):
 """
 DEberia agregar una funcion que revise la disponibilidad de asientos
 es decir, si la funcion ya esta agotada o no
-
+        if not seat_ids:
+            return Response({'message': 'No se enviaron asientos'}, status=statu
 """
-
-
 
 """
 Evitar reservas de asientos que ya están ocupados
 """
 
-def reserve_seat(user, seat, function):
+def check_seat_availability(seat, function):
     """
     Verifica si un asiento esta disponible o reservado para
     una función en específico
@@ -49,31 +48,6 @@ def reserve_seat(user, seat, function):
     """
     if not seat.seat_available:
         raise ValidationError("Este asiento no está disponible")
-
-
-    """
-    Crear o reuperar reserva del usuario para la funcion
-    """
-    booking, created = Booking.objects.get_or_create(
-        user=user,
-        function=function,
-        defaults={'status':'pending', 'total_price': price_per_ticket},
-    )
-
-    """
-    Crear el ticker asociado al asiento
-    """
-    ticket = Ticket.objects.create(
-        booking=booking,
-        seat=seat,
-        ticket_code=generate_ticket_code(user, seat, function)
-    )
-
-    """ Marcar el asiento como no disponible  """
-    seat.seat_available = False
-    seat.save()
-
-    return ticket
 
 
 def validate_ticket_purchase(user, tickets_requested, function):
@@ -96,16 +70,8 @@ def validate_ticket_purchase(user, tickets_requested, function):
     if existing_tickets + amount_ticket_requested > MAX_TICKETS_PER_USER:
         return ValidationError(f"No puedes comprar más de {MAX_TICKETS_PER_USER} para una misma función")
 
-    # Reservar cada asiento
-    tickets = []
-    for seat in tickets_requested:
-        ticket = reserve_seat(user, seat, function)
-        tickets.append(ticket)
 
-    return tickets
-
-
-def check_seat_availability(booking, function, hall):
+def check_capacity(booking, function, hall):
     """
     Cuenta los asientos reservados para una determinada funcion
     :param booking: reserva de asientos
