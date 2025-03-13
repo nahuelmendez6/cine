@@ -70,13 +70,6 @@ class SelectSeatsView(APIView):
         
         Returns:
             Response with created tickets if successful, error message otherwise
-        
-        Workflow:
-        1. Validates seat availability
-        2. Checks purchase limits
-        3. Creates tickets
-        4. Generates QR codes
-        5. Sends confirmation emails
         """
         # Extract booking and seat information from request
         booking_id = request.data.get('booking_id')
@@ -92,40 +85,37 @@ class SelectSeatsView(APIView):
             # Validate against maximum ticket purchase limit
             validate_ticket_purchase(request.user, seat_ids, booking.function)
             
-            tickets = []
+            # Prepare data for serializer
+            tickets_data = []
             for seat_id in seat_ids:
-                # Get and validate each seat
                 seat = get_object_or_404(Seat, id=seat_id)
-                
-                # Verify seat is available for this function
                 check_seat_availability(seat, booking.function)
                 
-                # Generate unique ticket identifier
-                ticket_code = generate_ticket_code(request.user, seat, booking.function)
+                ticket_data = {
+                    'booking': booking.id,
+                    'seat': seat.id,
+                    'ticket_code': generate_ticket_code(request.user, seat, booking.function)
+                }
+                tickets_data.append(ticket_data)
+            
+            # Create tickets using serializer
+            serializer = TicketSerializer(data=tickets_data, many=True)
+            if serializer.is_valid():
+                tickets = serializer.save()
                 
-                # Create ticket record in database
-                ticket = Ticket.objects.create(
-                    booking=booking,
-                    seat=seat,
-                    ticket_code=ticket_code
-                )
+                # Update seats and send notifications
+                for ticket in tickets:
+                    ticket.seat.seat_available = False
+                    ticket.seat.save()
+                    
+                    qr_code_path = generate_qr_code(ticket)
+                    send_confirmation_email(ticket, qr_code_path)
                 
-                # Update seat availability status
-                seat.seat_available = False
-                seat.save()
-                
-                # Generate QR code and send confirmation
-                qr_code_path = generate_qr_code(ticket)
-                send_confirmation_email(ticket, qr_code_path)
-                
-                tickets.append(ticket)
-
-            # Serialize and return created tickets
-            serializer = TicketSerializer(tickets, many=True)
-            return Response({
-                'message': 'Asientos seleccionados correctamente',
-                'tickets': serializer.data
-            }, status=status.HTTP_201_CREATED)
+                return Response({
+                    'message': 'Asientos seleccionados correctamente',
+                    'tickets': serializer.data
+                }, status=status.HTTP_201_CREATED)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
             
         except ValidationError as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -149,31 +139,32 @@ class AddComboView(APIView):
         Returns:
             Response with created combo ticket if successful
         """
-        booking_id = request.data.get('booking_id')
-        combo_id = request.data.get('combo_id')
-        quantity = request.data.get('quantity', 1)
-
         # Validate booking and combo exist
-        booking = get_object_or_404(Booking, id=booking_id, user=request.user)
-        combo = get_object_or_404(Combo, id=combo_id)
-
-        # Calculate total price for the combo order
+        booking = get_object_or_404(Booking, id=request.data.get('booking_id'), user=request.user)
+        combo = get_object_or_404(Combo, id=request.data.get('combo_id'))
+        
+        # Calculate total price
+        quantity = request.data.get('quantity', 1)
         total_price = quantity * combo.combo_price
-
-        # Create combo ticket record
-        combo_ticket = ComboTicket.objects.create(
-            booking=booking,
-            combo=combo,
-            quantity=quantity,
-            total_combo_price=total_price,
-            combo_ticket_code=f"CMB-{combo_id}-{booking.id}"
-        )
-
-        serializer = ComboTicketSerializer(combo_ticket)
-        return Response({
-            'message': 'Combo agregado correctamente',
-            'combo_ticket': serializer.data
-        }, status=status.HTTP_201_CREATED)
+        
+        # Prepare data for serializer
+        combo_ticket_data = {
+            'booking': booking.id,
+            'combo': combo.id,
+            'quantity': quantity,
+            'total_combo_price': total_price,
+            'combo_ticket_code': f"CMB-{combo.id}-{booking.id}"
+        }
+        
+        # Create combo ticket using serializer
+        serializer = ComboTicketSerializer(data=combo_ticket_data)
+        if serializer.is_valid():
+            combo_ticket = serializer.save()
+            return Response({
+                'message': 'Combo agregado correctamente',
+                'combo_ticket': serializer.data
+            }, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class MyBookingsView(APIView):
     """
@@ -229,10 +220,11 @@ class CancelBookingView(APIView):
             ticket.seat.seat_available = True
             ticket.seat.save()
 
-        # Mark booking as cancelled
-        booking.status = 'cancelled'
-        booking.save()
-
-        return Response({
-            'message': 'Reserva cancelada correctamente'
-        }, status=status.HTTP_200_OK)
+        # Update booking status using serializer
+        serializer = BookingSerializer(booking, data={'status': 'cancelled'}, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({
+                'message': 'Reserva cancelada correctamente'
+            }, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
