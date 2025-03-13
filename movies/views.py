@@ -1,6 +1,22 @@
+"""
+Este módulo contiene las vistas de la aplicación de cine.
+
+Define las vistas para la gestión de:
+- Películas (Movie): Creación, listado y actualización
+- Salas (Hall): Creación y actualización
+- Funciones (Function): Creación, listado y actualización
+
+Cada vista está implementada como una APIView independiente, lo que permite:
+- Control granular de permisos por operación
+- URLs explícitas y descriptivas
+- Separación clara de responsabilidades
+- Documentación específica por endpoint
+"""
+
 from xmlrpc.client import Fault
 from django.db.models import Q
 from rest_framework import viewsets, status
+from rest_framework.views import APIView
 from rest_framework.decorators import action
 from rest_framework.generics import get_object_or_404
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -11,38 +27,66 @@ from .models import Movie, Hall, Function
 from .serializers import MovieSerializer, HallSerializer, FunctionSerializer
 
 # Create your views here.
-class MovieViewSet(viewsets.ViewSet):
+class CreateMovieView(APIView):
     """
-    ViewSet para la gestión de películas.
+    View para crear una nueva película.
     
-    Proporciona endpoints para:
-    - Cargar películas
-    - Editar películas
-    - Listar películas
-    """
-    permission_classes = [AllowAny]
+    Permite crear una nueva película con los datos proporcionados en la solicitud.
+    
+    Requires authentication and admin group user permissions.
+    Creates a new movie instance for the authenticated admin user.
 
-    def get_permissions(self):
-        """Define permisos específicos para cada acción"""
-        if self.action in ['add_new_movie', 'update_movie', 'add_new_hall', 'update_hall']:
-            return [IsAuthenticated(), IsAdminGroupUser()]
-        return [AllowAny()]
+    Methods:
+        post: Crea una nueva instancia de película
+    """ 
+    permission_classes = [IsAuthenticated, IsAdminGroupUser]
 
-    @action(detail=False, methods=['post'], url_path='add')
-    def add_new_movie(self, request):
-        """Agregar una nueva película"""
+    def post(self, request):
+        """
+        Creates a new movie instance for the authenticated admin user.
+
+        Args:
+            request: HTTP request containing movie data in request.data
+
+        Returns:
+            Response: 
+                - 201 Created: Si la película se crea correctamente
+                - 400 Bad Request: Si hay errores de validación
+        """
         serializer = MovieSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save()
-            return Response(
-                {'message': 'Película agregada correctamente', 'data': serializer.data}, 
-                status=status.HTTP_201_CREATED
-            )
+            return Response({
+                'message': 'Película agregada correctamente',
+                'data': serializer.data
+            }, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    @action(detail=False, methods=['get'], url_path='view')
-    def view_movie_list(self, request):
-        """Listar todas las películas con opción de filtrado"""
+
+class ListMovieView(APIView):
+    """
+    View para listar películas.
+    
+    Permite obtener la lista de todas las películas con opción de búsqueda.
+    No requiere autenticación.
+
+    Methods:
+        get: Retorna la lista de películas con opción de búsqueda
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        """
+        Retorna la lista de películas con opción de búsqueda.
+
+        Args:
+            request: HTTP request que puede contener parámetros de búsqueda
+
+        Returns:
+            Response:
+                - 200 OK: Lista de películas
+                - 204 No Content: Si no hay películas registradas
+        """
         queryset = Movie.objects.all()
         
         # Agregar capacidad de búsqueda
@@ -50,7 +94,7 @@ class MovieViewSet(viewsets.ViewSet):
         if search:
             queryset = queryset.filter(
                 Q(title__icontains=search) |
-                Q(description__icontains=search)
+                Q(synopsis__icontains=search)
             )
 
         if not queryset.exists():
@@ -62,9 +106,34 @@ class MovieViewSet(viewsets.ViewSet):
         serializer = MovieSerializer(queryset, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
-    @action(detail=True, methods=['put'], url_path='update')
-    def update_movie(self, request, pk=None):
-        """Actualizar una película existente"""
+
+class UpdateMovieView(APIView):
+    """
+    View para actualizar una película existente.
+    
+    Permite modificar los datos de una película específica.
+    
+    Requires authentication and admin group user permissions.
+
+    Methods:
+        put: Actualiza una película existente
+    """
+    permission_classes = [IsAuthenticated, IsAdminGroupUser]
+
+    def put(self, request, pk):
+        """
+        Actualiza una película existente.
+        
+        Args:
+            request: HTTP request con los datos a actualizar
+            pk: ID de la película a actualizar
+
+        Returns:
+            Response:
+                - 200 OK: Si la actualización es exitosa
+                - 400 Bad Request: Si hay errores de validación
+                - 404 Not Found: Si la película no existe
+        """
         movie = get_object_or_404(Movie, pk=pk)
         serializer = MovieSerializer(movie, data=request.data, partial=True)
 
@@ -76,9 +145,32 @@ class MovieViewSet(viewsets.ViewSet):
             }, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    @action(detail=False, methods=['post'], url_path='add/hall')
-    def add_new_hall(self, request):
-        """Agregar una nueva sala"""
+
+class CreateHallView(APIView):
+    """
+    View para crear una nueva sala.
+    
+    Permite crear una nueva sala de proyección.
+    
+    Requires authentication and admin group user permissions.
+
+    Methods:
+        post: Crea una nueva instancia de sala
+    """
+    permission_classes = [IsAuthenticated, IsAdminGroupUser]
+
+    def post(self, request):
+        """
+        Creates a new hall instance.
+
+        Args:
+            request: HTTP request containing hall data in request.data
+
+        Returns:
+            Response:
+                - 201 Created: Si la sala se crea correctamente
+                - 400 Bad Request: Si hay errores de validación
+        """
         serializer = HallSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save()
@@ -88,9 +180,34 @@ class MovieViewSet(viewsets.ViewSet):
             }, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    @action(detail=True, methods=['put'], url_path='update/hall')
-    def update_hall(self, request, pk=None):
-        """Actualizar una sala existente"""
+
+class UpdateHallView(APIView):
+    """
+    View para actualizar una sala existente.
+    
+    Permite modificar los datos de una sala específica.
+    
+    Requires authentication and admin group user permissions.
+
+    Methods:
+        put: Actualiza una sala existente
+    """
+    permission_classes = [IsAuthenticated, IsAdminGroupUser]
+
+    def put(self, request, pk):
+        """
+        Actualiza una sala existente.
+        
+        Args:
+            request: HTTP request con los datos a actualizar
+            pk: ID de la sala a actualizar
+
+        Returns:
+            Response:
+                - 200 OK: Si la actualización es exitosa
+                - 400 Bad Request: Si hay errores de validación
+                - 404 Not Found: Si la sala no existe
+        """
         hall = get_object_or_404(Hall, pk=pk)
         serializer = HallSerializer(hall, data=request.data, partial=True)
 
@@ -102,27 +219,32 @@ class MovieViewSet(viewsets.ViewSet):
             }, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-class FunctionViewSet(viewsets.ViewSet):
-    """
-    ViewSet para la gestión de funciones.
+
+class CreateFunctionView(APIView):
+    """ 
+    View para crear una nueva función.
     
-    Proporciona endpoints para:
-    - Agregar función
-    - Listar funciones
-    - Editar función
-    - Eliminar función
+    Permite crear una nueva función de proyección.
+    
+    Requires authentication and admin group user permissions.
+
+    Methods:
+        post: Crea una nueva instancia de función
     """
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated, IsAdminGroupUser]
 
-    def get_permissions(self):
-        """Define permisos específicos para cada acción"""
-        if self.action in ['add_function', 'update_function', 'delete_function']:
-            return [IsAuthenticated(), IsAdminGroupUser()]
-        return [AllowAny()]
+    def post(self, request):
+        """
+        Creates a new function instance.
 
-    @action(detail=False, methods=['post'], url_path='add/function')
-    def add_function(self, request):
-        """Agregar una nueva función"""
+        Args:
+            request: HTTP request containing function data in request.data
+
+        Returns:
+            Response:
+                - 201 Created: Si la función se crea correctamente
+                - 400 Bad Request: Si hay errores de validación
+        """
         serializer = FunctionSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save()
@@ -131,13 +253,37 @@ class FunctionViewSet(viewsets.ViewSet):
                 'data': serializer.data
             }, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
 
-    @action(detail=False, methods=['get'], url_path='view/functions')
-    def view_functions(self, request):
-        """Listar todas las funciones con opciones de filtrado"""
+class ListFunctionView(APIView):
+    """
+    View para listar funciones.
+    
+    Permite obtener la lista de todas las funciones con opciones de filtrado.
+    No requiere autenticación.
+
+    Methods:
+        get: Retorna la lista de funciones con opciones de filtrado
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        """
+        Retorna la lista de funciones con opciones de filtrado.
+
+        Args:
+            request: HTTP request que puede contener parámetros de filtrado:
+                - movie_id: ID de la película para filtrar
+                - date: Fecha para filtrar
+
+        Returns:
+            Response:
+                - 200 OK: Lista de funciones
+                - 204 No Content: Si no hay funciones registradas
+        """
         queryset = Function.objects.all()
         
-        # Filtrar por película
+        # Filtrar por pelicula        
         movie_id = request.query_params.get('movie_id')
         if movie_id:
             queryset = queryset.filter(movie_id=movie_id)
@@ -152,30 +298,45 @@ class FunctionViewSet(viewsets.ViewSet):
                 {'message': 'No hay funciones registradas'},
                 status=status.HTTP_204_NO_CONTENT
             )
-
+        
         serializer = FunctionSerializer(queryset, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
+    
 
-    @action(detail=True, methods=['put'], url_path='update/function')
-    def update_function(self, request, pk=None):
-        """Actualizar una función existente"""
+class UpdateFunctionView(APIView):
+    """
+    View para actualizar una función existente.
+    
+    Permite modificar los datos de una función específica.
+    
+    Requires authentication and admin group user permissions.
+
+    Methods:
+        put: Actualiza una función existente
+    """
+    permission_classes = [IsAuthenticated, IsAdminGroupUser]
+
+    def put(self, request, pk):
+        """
+        Actualiza una función existente.
+        
+        Args:
+            request: HTTP request con los datos a actualizar
+            pk: ID de la función a actualizar
+
+        Returns:
+            Response:
+                - 200 OK: Si la actualización es exitosa
+                - 400 Bad Request: Si hay errores de validación
+                - 404 Not Found: Si la función no existe
+        """
         function = get_object_or_404(Function, pk=pk)
         serializer = FunctionSerializer(function, data=request.data, partial=True)
 
         if serializer.is_valid():
             serializer.save()
             return Response({
-                'message': 'Función actualizada correctamente',
+                'message': 'Función actualizada exitosamente',
                 'data': serializer.data
             }, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    @action(detail=True, methods=['delete'], url_path='delete/function')
-    def delete_function(self, request, pk=None):
-        """Eliminar una función existente"""
-        function = get_object_or_404(Function, pk=pk)
-        function.delete()
-        return Response(
-            {'message': 'Función eliminada correctamente'},
-            status=status.HTTP_200_OK
-        )
