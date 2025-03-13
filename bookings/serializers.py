@@ -1,152 +1,330 @@
 from django.contrib.auth import authenticate
 from rest_framework import serializers
 from .models import Seat, Ticket, Combo, ComboTicket, Booking
+from movies.models import Hall
+from movies.serializers import HallSerializer
 from .services import (generate_ticket_code, check_seat_availability, validate_ticket_purchase,
                       release_expired_reservations, generate_qr_code, send_confirmation_email)
+from users.models import CustomUser
+from movies.models import Function
 
 
 class SeatSerializer(serializers.Serializer):
     id = serializers.IntegerField(read_only=True)
+    hall = HallSerializer(read_only=True)
     row = serializers.IntegerField()
-    number = serializers.IntegerField()
-    hall = serializers.IntegerField()  # ID de la sala
-    status = serializers.CharField(max_length=20)
+    number = serializers.IntegerField()  # ID de la sala
+    seat_available = serializers.BooleanField()
+    
+    def validate(self, data):
+        """
+        Validación personalizada para asegurar que el asiento sea válido
+        """
+        try:
+            hall = Hall.objects.get(id=data['hall'])
+        except Hall.DoesNotExist:
+            raise serializers.ValidationError({"hall": "La sala especificada no existe"})
+        
+        # Validar rangos según capacidad de la sala
+        if data['row'] < 1 or data['row'] > hall.rows:
+            raise serializers.ValidationError({
+                "row": f"La fila debe estar entre 1 y {hall.rows}"
+            })
+        
+        if data['number'] < 1 or data['number'] > hall.seats_per_row:
+            raise serializers.ValidationError({
+                "number": f"El número de asiento debe estar entre 1 y {hall.seats_per_row}"
+            })
+        
+        # Verificar si el asiento ya existe
+        if Seat.objects.filter(
+            hall=hall,
+            row=data['row'],
+            number=data['number']
+        ).exists():
+            raise serializers.ValidationError({
+                "seat": "Ya existe un asiento en esta posición"
+            })
+        
+        return data
     
     def create(self, validated_data):
         """
-        Sugerencias para create():
-        1. Validar que la combinación row/number no exista ya para ese hall
-        2. Verificar que el hall exista antes de crear el asiento
-        3. Establecer un estado inicial por defecto (ej: 'available')
-        4. Considerar agregar validación de rango para row y number según capacidad del hall
+        Crea un nuevo asiento con validaciones previas
         """
-        pass
-
+        # Establecer estado inicial por defecto si no se proporciona
+        if 'status' not in validated_data:
+            validated_data['status'] = 'available'
+            
+        # Crear el asiento
+        seat = Seat.objects.create(**validated_data)
+        return seat
+        
     def update(self, instance, validated_data):
         """
-        Sugerencias para update():
-        1. Validar que el nuevo estado sea uno de los permitidos
-        2. Si se actualiza hall/row/number, verificar que no exista esa combinación
-        3. Mantener un historial de cambios de estado si es relevante
-        4. No permitir ciertos cambios si el asiento está reservado/ocupado
+        Actualiza un asiento existente con validaciones previas
         """
-        pass
+        # Validar que el asiento no esté reservado o ocupado antes de permitir cambios
+        if instance.seat_available is False:
+            raise serializers.ValidationError({
+                "seat": "No se puede modificar un asiento que está reservado u ocupado"
+            })
+        
+        # Si se actualiza el hall, row o number, verificar que no exista esa combinación
+        if any(key in validated_data for key in ['hall', 'row', 'number']):
+            # Usar los valores nuevos o los existentes para la validación
+            hall = validated_data.get('hall', instance.hall)
+            row = validated_data.get('row', instance.row)
+            number = validated_data.get('number', instance.number)
+            
+            # Excluir la instancia actual de la búsqueda para evitar falsos positivos
+            if Seat.objects.filter(
+                hall=hall,
+                row=row,
+                number=number
+            ).exclude(id=instance.id).exists():
+                raise serializers.ValidationError({
+                    "seat": "Ya existe un asiento en esta posición"
+                })
+        
+        # Actualizar los campos del asiento
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        
+        # Guardar los cambios
+        instance.save()
+        return instance
+
+class BookingSerializer(serializers.Serializer):
+    id = serializers.IntegerField(read_only=True)
+    user = serializers.PrimaryKeyRelatedField(queryset=CustomUser.objects.all())
+    function = serializers.PrimaryKeyRelatedField(queryset=Function.objects.all())
+    total_price = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+    created_at = serializers.DateTimeField(read_only=True)
+    status = serializers.ChoiceField(
+        choices=[
+            ('pending', 'Pendiente'),
+            ('paid', 'Pagado'),
+            ('cancelled', 'cancelado'),
+            ('expired', 'Expirado')
+        ]
+    )
+    
+    def validate(self, data):
+        """
+        Validaciones a nivel de objeto:
+        1. Verificar que el usuario exista
+        2. Verificar que la función exista y esté disponible
+        3. Validar que el estado inicial sea 'pending'
+        """
+        user = data.get('user')
+        function = data.get('function')
+        status = data.get('status')
+        
+        if not user or not function:
+            raise serializers.ValidationError({
+                "booking": "Se requiere tanto el usuario como la función"
+            })
+            
+        # Validar que el estado inicial sea 'pending'
+        if status and status != 'pending':
+            raise serializers.ValidationError({
+                "status": "El estado inicial debe ser 'pending'"
+            })
+            
+        return data
+    
+    def create(self, validated_data):
+        """
+        Crea una nueva reserva con los datos validados.
+        La lógica de negocio (cálculo de precio total, timeout, etc.) se maneja en las views.
+        """
+        # Crear la reserva con los datos validados
+        booking = Booking.objects.create(**validated_data)
+        return booking
+    
+    def update(self, instance, validated_data):
+        """
+        Actualiza una reserva existente con los datos validados.
+        La lógica de negocio (recalculo de precio, notificaciones, etc.) se maneja en las views.
+        """
+        # Actualizar los campos de la reserva
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        
+        # Guardar los cambios
+        instance.save()
+        return instance
 
 
 class TicketSerializer(serializers.Serializer):
     id = serializers.IntegerField(read_only=True)
-    code = serializers.CharField(read_only=True)  # Generado automáticamente
-    function = serializers.IntegerField()  # ID de la función
-    seat = serializers.IntegerField()  # ID del asiento
-    price = serializers.DecimalField(max_digits=10, decimal_places=2)
-    status = serializers.CharField(max_length=20)
-    qr_code = serializers.CharField(read_only=True)  # Generado automáticamente
+    booking = serializers.PrimaryKeyRelatedField(queryset=Booking.objects.all())
+    seat = serializers.PrimaryKeyRelatedField(queryset=Seat.objects.all())
+    ticket_code = serializers.CharField(read_only=True)
+    issued_at = serializers.DateTimeField(read_only=True)
+    is_scanned = serializers.BooleanField(read_only=True)
+    
+    def validate(self, data):
+        """
+        Validaciones a nivel de objeto:
+        1. Verificar que el asiento exista y esté disponible
+        2. Validar que el booking exista y esté en estado válido
+        3. Verificar que el asiento pertenezca a la sala de la función del booking
+        4. Verificar que no exista un ticket duplicado para el mismo asiento y función
+        """
+        seat = data.get('seat')
+        booking = data.get('booking')
+        
+        if not seat or not booking:
+            raise serializers.ValidationError({
+                "ticket": "Se requiere tanto el asiento como la reserva"
+            })
+            
+        # Validar que el asiento esté disponible
+        if not seat.seat_available:
+            raise serializers.ValidationError({
+                "seat": "El asiento no está disponible"
+            })
+            
+        # Validar que el booking esté en estado válido
+        if booking.status not in ['pending', 'confirmed']:
+            raise serializers.ValidationError({
+                "booking": "La reserva no está en un estado válido para crear tickets"
+            })
+            
+        # Validar que el asiento pertenezca a la sala de la función
+        if seat.hall != booking.function.hall:
+            raise serializers.ValidationError({
+                "seat": "El asiento no pertenece a la sala de la función"
+            })
+            
+        # Verificar duplicados (excluyendo tickets cancelados)
+        if Ticket.objects.filter(
+            seat=seat,
+            booking__function=booking.function,
+            is_scanned=False
+        ).exists():
+            raise serializers.ValidationError({
+                "ticket": "Ya existe un ticket activo para este asiento en esta función"
+            })
+            
+        return data
     
     def create(self, validated_data):
         """
-        Sugerencias para create():
-        1. Generar código único usando generate_ticket_code()
-        2. Verificar disponibilidad del asiento con check_seat_availability()
-        3. Validar la compra usando validate_ticket_purchase()
-        4. Generar QR code usando generate_qr_code()
-        5. Actualizar el estado del asiento a 'occupied'
+        Crea un nuevo ticket con los datos validados.
         """
-        pass
+        # Crear el ticket con los datos validados
+        ticket = Ticket.objects.create(**validated_data)
+        return ticket
 
     def update(self, instance, validated_data):
         """
-        Sugerencias para update():
-        1. No permitir cambios en code y qr_code
-        2. Validar cambios de estado según el flujo permitido
-        3. Si se cambia el asiento, liberar el anterior y verificar disponibilidad del nuevo
-        4. Actualizar precio solo si el ticket no ha sido usado
+        Actualiza un ticket existente con los datos validados.
+        La lógica de negocio (liberación de asientos, notificaciones, etc.) se maneja en las views.
         """
-        pass
+        # Actualizar los campos del ticket
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        
+        # Guardar los cambios
+        instance.save()
+        return instance
 
 
 class ComboSerializer(serializers.Serializer):
     id = serializers.IntegerField(read_only=True)
-    name = serializers.CharField(max_length=100)
-    description = serializers.CharField()
-    price = serializers.DecimalField(max_digits=10, decimal_places=2)
-    is_active = serializers.BooleanField(default=True)
+    combo_name = serializers.CharField(max_length=100)
+    combo_description = serializers.CharField()
+    combo_price = serializers.DecimalField(max_digits=10, decimal_places=2)
+    combo_picture = serializers.ImageField()
+
+    def validate(self, data):
+        """
+        Validaciones a nivel de objeto:
+        1. Validar que el nombre del combo no esté en uso
+        2. Validar que el precio sea mayor que 0
+        """
+        if Combo.objects.filter(combo_name=data['combo_name']).exists():
+            raise serializers.ValidationError({
+                "combo_name": "Ya existe un combo con este nombre"
+            })
+        
+        if data['combo_price'] <= 0:
+            raise serializers.ValidationError({
+                "combo_price": "El precio del combo debe ser mayor que 0"
+            })
+        
+        return data
     
     def create(self, validated_data):
         """
-        Sugerencias para create():
-        1. Validar que no exista otro combo con el mismo nombre
-        2. Verificar que el precio sea mayor que 0
-        3. Considerar agregar un campo para fecha de vigencia
-        4. Implementar versionamiento de combos
+        Crea un nuevo combo con los datos validados.
         """
-        pass
+        combo = Combo.objects.create(**validated_data)
+        return combo
 
     def update(self, instance, validated_data):
+        
         """
-        Sugerencias para update():
-        1. No permitir cambios si hay tickets activos con este combo
-        2. Mantener historial de cambios de precio
-        3. En lugar de eliminar, marcar como inactivo
-        4. Validar que el nuevo precio no sea menor que el costo de los items
+        Actualiza un combo existente con los datos validados.
         """
-        pass
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
 
+        instance.save()
+        return instance
 
 class ComboTicketSerializer(serializers.Serializer):
     id = serializers.IntegerField(read_only=True)
-    ticket = serializers.IntegerField()  # ID del ticket
-    combo = serializers.IntegerField()  # ID del combo
-    quantity = serializers.IntegerField(min_value=1)
-    total_price = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+    booking = serializers.PrimaryKeyRelatedField(queryset=Booking.objects.all())
+    combo = serializers.PrimaryKeyRelatedField(queryset=Combo.objects.all())
+    quantity = serializers.IntegerField()
+    total_combo_price = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+    combo_ticket_code = serializers.CharField(read_only=True)
+    issued_at = serializers.DateTimeField(read_only=True)
+    is_scanned = serializers.BooleanField(read_only=True)
     
+    def validate(self, data):
+        """
+        Validaciones a nivel de objeto:
+        1. Verificar que el booking exista
+        2. Verificar que el combo exista
+        3. Validar que la cantidad sea positiva
+        
+        """
+        booking = data.get('booking')
+        combo = data.get('combo')
+        quantity = data.get('quantity')
+
+        if not booking or not combo:
+            raise serializers.ValidationError({
+                "combo_ticket": "Se requiere tanto el booking como el combo"
+            })
+        
+        if quantity <= 0:
+            raise serializers.ValidationError({
+                "quantity": "La cantidad debe ser mayor que 0"
+            })
+        
+        return data
+
     def create(self, validated_data):
         """
-        Sugerencias para create():
-        1. Verificar que el ticket y el combo existan y estén activos
-        2. Calcular el precio total basado en la cantidad y el precio del combo
-        3. Validar stock disponible si es relevante
-        4. Aplicar descuentos por cantidad si corresponde
+        Crea un nuevo combo ticket con los datos validados.
         """
-        pass
+        combo_ticket = ComboTicket.objects.create(**validated_data)
+        return combo_ticket
 
     def update(self, instance, validated_data):
         """
-        Sugerencias para update():
-        1. Recalcular precio total si cambia la cantidad
-        2. No permitir cambios si el ticket ya fue usado
-        3. Validar nuevo stock si se aumenta la cantidad
-        4. Mantener registro de modificaciones
+        Actualiza un combo ticket existente con los datos validados.
         """
-        pass
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+            
+        instance.save()
+        return instance
 
 
-class BookingSerializer(serializers.Serializer):
-    id = serializers.IntegerField(read_only=True)
-    user = serializers.IntegerField()  # ID del usuario
-    tickets = serializers.ListField(child=serializers.IntegerField())  # Lista de IDs de tickets
-    combos = serializers.ListField(child=serializers.IntegerField(), required=False)  # Lista de IDs de combo_tickets
-    total_amount = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
-    status = serializers.CharField(max_length=20)
-    created_at = serializers.DateTimeField(read_only=True)
-    
-    def create(self, validated_data):
-        """
-        Sugerencias para create():
-        1. Validar que todos los tickets estén disponibles
-        2. Calcular monto total incluyendo tickets y combos
-        3. Crear una transacción para asegurar atomicidad
-        4. Enviar email de confirmación usando send_confirmation_email()
-        5. Implementar timeout de reserva con release_expired_reservations()
-        """
-        pass
-
-    def update(self, instance, validated_data):
-        """
-        Sugerencias para update():
-        1. Validar cambios de estado según el flujo permitido
-        2. No permitir modificaciones después de cierto estado
-        3. Recalcular total si se modifican tickets o combos
-        4. Notificar al usuario sobre cambios importantes
-        5. Mantener historial de cambios
-        """
-        pass

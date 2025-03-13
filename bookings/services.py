@@ -4,16 +4,29 @@ from movies.models import Function
 from users.models import CustomUser
 from django.core.mail import EmailMessage
 from django.conf import settings
+from django.utils import timezone
+from datetime import timedelta
 import qrcode
 import os
+import logging
 
+logger = logging.getLogger(__name__)
 
 MAX_TICKETS_PER_USER = 10
+RESERVATION_EXPIRY_MINUTES = 15
 
 
 def generate_ticket_code(user, seat, function):
     """
-    Genera un codigo único para cada ticker
+    Genera un código único para cada ticket
+    
+    Args:
+        user: Usuario que compra el ticket
+        seat: Asiento seleccionado
+        function: Función para la cual se compra el ticket
+        
+    Returns:
+        str: Código único del ticket
     """
     import uuid
     return f"{user.id}-{function.id}-{seat.id}-{uuid.uuid4().hex[:6]}"
@@ -31,102 +44,158 @@ Evitar reservas de asientos que ya están ocupados
 
 def check_seat_availability(seat, function):
     """
-    Verifica si un asiento esta disponible o reservado para
-    una función en específico
+    Verifica si un asiento está disponible o reservado para una función específica
+    
+    Args:
+        seat: Asiento a verificar
+        function: Función para la cual se verifica la disponibilidad
+        
+    Raises:
+        ValidationError: Si el asiento no está disponible o ya está reservado
     """
-    price_per_ticket = function.price  # Asegúrate de que `function` tenga el atributo `price`
+    try:
+        if Ticket.objects.filter(seat=seat, booking__function=function, 
+                               booking__status__in=['pending', 'paid']).exists():
+            raise ValidationError("Este asiento ya está reservado para esta función")
 
-    if Ticket.objects.filter(seat=seat, booking__function=function, booking__status=['pending', 'paid']).exists():
-        """
-        Esta condición verifica que el asiento esté asociado a una reservación (booking) y  una función, también verifica
-        si se har realizado el pago del mismo
-        """
-        raise ValidationError("Este asiento ya está reservado para esta función")
-
-    """
-    Verificar que el asiento esté marcado como disponible
-    """
-    if not seat.seat_available:
-        raise ValidationError("Este asiento no está disponible")
+        if not seat.seat_available:
+            raise ValidationError("Este asiento no está disponible")
+            
+    except Exception as e:
+        logger.error(f"Error checking seat availability: {str(e)}")
+        raise
 
 
 def validate_ticket_purchase(user, tickets_requested, function):
     """
     Valida y procesa la compra de entradas por un usuario para una función específica
 
-    :param user: El usuario que está realizando la compra.
-    :param function: La función para la cual se están comprando las entradas.
-    :param seats_requested: Lista de asientos seleccionados para la compra
-    :return: Lista de asientos reservados
+    Args:
+        user: Usuario que realiza la compra
+        tickets_requested: Lista de tickets solicitados
+        function: Función para la cual se compran las entradas
+        
+    Raises:
+        ValidationError: Si se excede el límite de tickets por usuario
     """
+    try:
+        existing_tickets = Ticket.objects.filter(
+            booking__user=user, 
+            booking__function=function
+        ).count()
 
-    # Contar cuantos tickets ya tiene el usuario para esa funcion
-    existing_tickets = Ticket.objects.filter(booking__user=user, booking__function=function).count()
+        amount_ticket_requested = len(tickets_requested)
 
-    # Contar cuantos asientos se han seleccionado
-    amount_ticket_requested = len(tickets_requested)
-
-    # Validar el límite de tickets
-    if existing_tickets + amount_ticket_requested > MAX_TICKETS_PER_USER:
-        return ValidationError(f"No puedes comprar más de {MAX_TICKETS_PER_USER} para una misma función")
+        if existing_tickets + amount_ticket_requested > MAX_TICKETS_PER_USER:
+            raise ValidationError(
+                f"No puedes comprar más de {MAX_TICKETS_PER_USER} tickets para una misma función"
+            )
+            
+    except Exception as e:
+        logger.error(f"Error validating ticket purchase: {str(e)}")
+        raise
 
 
 def check_capacity(booking, function, hall):
     """
-    Cuenta los asientos reservados para una determinada funcion
-    :param booking: reserva de asientos
-    :param function: funcion de la cual se quiere evaluar la disponibilidad
-    :param hall: sala asociada a la funcion
+    Verifica la disponibilidad de asientos en una sala para una función específica
+    
+    Args:
+        booking: Reserva de asientos
+        function: Función a verificar
+        hall: Sala asociada a la función
+        
+    Returns:
+        bool: True si hay capacidad disponible, False en caso contrario
     """
-
-    # parametros de prueba, cuando tenga salas cargadas en la base de datos se cambia por consultas en tiempo real
-    hall1_capacity = 150
-    hall2_capacity = 175
-
-    total_booked_seats = Tickets.objects.filter()
+    try:
+        total_booked_seats = Ticket.objects.filter(
+            booking__function=function,
+            booking__status__in=['pending', 'paid']
+        ).count()
+        
+        return total_booked_seats < hall.capacity
+        
+    except Exception as e:
+        logger.error(f"Error checking capacity: {str(e)}")
+        raise
 
 
 def release_expired_reservations():
     """
     Libera los asientos reservados si el pago no se completó en el tiempo establecido
     """
-    from bookings.models import Booking
+    try:
+        expired_bookings = Booking.objects.filter(
+            status='pending',
+            reserved_at__lt=timezone.now() - timedelta(minutes=RESERVATION_EXPIRY_MINUTES)
+        )
 
-    # Filtrar las reservas pendientes que hayan expirado
-    expired_bookings = Booking.object.filter(status='pending').filter(
-        reserved_at__lt=timezone.now() - timedelta(minutes=15)
-    )
-
-    for booking in expired_bookings:
-        booking.status = 'cancelled'
-        booking.save()
+        for booking in expired_bookings:
+            booking.status = 'cancelled'
+            booking.save()
+            logger.info(f"Released expired booking: {booking.id}")
+            
+    except Exception as e:
+        logger.error(f"Error releasing expired reservations: {str(e)}")
+        raise
 
 
 def generate_qr_code(ticket):
     """
     Genera un código QR para el ticket con información esencial
+    
+    Args:
+        ticket: Ticket para el cual se genera el QR
+        
+    Returns:
+        str: Ruta del archivo QR generado
     """
-    qr_data = f'Ticket ID: {ticket.id}, Código: {ticket.ticket_code}, Función: {ticket.booking.function}'
-    qr = qrcode.make(qr_data)
+    try:
+        qr_data = f'Ticket ID: {ticket.id}, Código: {ticket.ticket_code}, Función: {ticket.booking.function}'
+        qr = qrcode.make(qr_data)
 
-    qr_path = f"f{settomgs.MEDIA_ROOT}/qr_codes/ticket_{ticket.id}.png"
-    os.makedirs(os.path.dirname(qr_path), exist_ok=True)
-    qr.save(qr_path)
-
-    return qr_path
+        qr_path = f"{settings.MEDIA_ROOT}/qr_codes/ticket_{ticket.id}.png"
+        os.makedirs(os.path.dirname(qr_path), exist_ok=True)
+        qr.save(qr_path)
+        
+        return qr_path
+        
+    except Exception as e:
+        logger.error(f"Error generating QR code: {str(e)}")
+        raise
 
 
 def send_confirmation_email(ticket, qr_code_path):
     """
     Envía un correo de confirmación al usuario con el QR adjunto
+    
+    Args:
+        ticket: Ticket para el cual se envía la confirmación
+        qr_code_path: Ruta del archivo QR generado
     """
-    subject = "Confirmación de compra - CineApp"
-    message = (f'Hola {ticket.booking.user.username},\n\nTu compra ha sido confirmada para la función "'
-               f'{ticket.booking.function.movie.title}". Adjuntamos tu código QR para el ingreso.\n\n¡Gracias por elegirnos!')
-    email = EmailMessage(subject, message, settings.DEFAULT_FROM_EMAIL, [ticket.booking.user,email])
+    try:
+        subject = "Confirmación de compra - CineApp"
+        message = (
+            f'Hola {ticket.booking.user.username},\n\n'
+            f'Tu compra ha sido confirmada para la función "{ticket.booking.function.movie.title}". '
+            f'Adjuntamos tu código QR para el ingreso.\n\n'
+            f'¡Gracias por elegirnos!'
+        )
+        
+        email = EmailMessage(
+            subject=subject,
+            body=message,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=[ticket.booking.user.email]
+        )
 
-    # Adjuntar el codigo qr
-    if os.path.exists(qr_code_path):
-        email.attach_file(qr_code_path)
-
-    email.send()
+        if os.path.exists(qr_code_path):
+            email.attach_file(qr_code_path)
+            
+        email.send()
+        logger.info(f"Confirmation email sent for ticket: {ticket.id}")
+        
+    except Exception as e:
+        logger.error(f"Error sending confirmation email: {str(e)}")
+        raise
