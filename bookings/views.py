@@ -4,6 +4,7 @@ selecting seats, adding combos, viewing bookings and cancelling them.
 """
 
 from xmlrpc.client import Fault
+from django.forms import ValidationError
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.generics import get_object_or_404
