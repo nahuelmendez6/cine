@@ -1,5 +1,5 @@
-from rest_framework import viewsets, status
-from rest_framework.decorators import action
+from rest_framework import status
+from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -7,49 +7,110 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from users.serializers import RegisterSerializer, LoginSerializer, ProfileSerializer
 
 
-# Create your views here.
-class AuthView(viewsets.ViewSet):
+class RegisterView(APIView):
     permission_classes = [AllowAny]
 
-    @action(detail=False, methods=['post'], url_path='register')
-    def register(self, request):
-
+    def post(self, request):
         """
-        Toma los datos del usuario, los valida y crea usuario nuevo
+        Endpoint para registrar un nuevo usuario.
+        
+        Recibe los datos del usuario, los valida y crea una nueva cuenta.
+        Si los datos son válidos, retorna un mensaje de éxito.
+        Si los datos son inválidos, retorna los errores de validación.
         """
-
         serializer = RegisterSerializer(data=request.data)
         if serializer.is_valid():
             user = serializer.save()
-            return Response({'message': 'Usuario registrado exitosamente'}, status=status.HTTP_201_CREATED)
+            return Response(
+                {'message': 'Usuario registrado exitosamente'},
+                status=status.HTTP_201_CREATED
+            )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    @action(detail=False, methods=['post'], url_path='login')
-    def login(self, request):
 
+class LoginView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
         """
-        Valida las credenciales de usuario, si son correctas genera tokens JWT
-        y de actualizacion (refresh) 
+        Endpoint para iniciar sesión.
+        
+        Valida las credenciales del usuario y si son correctas,
+        genera tokens JWT (access y refresh).
+        Si las credenciales son inválidas, retorna los errores correspondientes.
         """
         serializer = LoginSerializer(data=request.data)
         if serializer.is_valid():
-            user = serializer.validated_data
+            user = serializer.validated_data['user']
             refresh = RefreshToken.for_user(user)
             return Response({
                 'refresh': str(refresh),
                 'access': str(refresh.access_token),
+                'user': {
+                    'id': user.id,
+                    'username': user.username,
+                    'email': user.email,
+                    'is_admin': user.is_admin,
+                    'is_customer': user.is_customer
+                }
             }, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    @action(detail=False, methods=['get'], url_path='profile', permission_classes=[IsAuthenticated])
-    def profile(self, request):
+
+class ProfileView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        """
+        Endpoint para obtener el perfil del usuario autenticado.
+        
+        Retorna los datos del perfil del usuario actual.
+        Requiere autenticación.
+        """
         serializer = ProfileSerializer(request.user)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
-    @action(detail=False, methods=['put'], url_path='profile/update', permission_classes=[IsAuthenticated])
-    def update_profile(self, request):
-        serializer = ProfileSerializer(request.user, data=request.data, partial=True)
+    def put(self, request):
+        """
+        Endpoint para actualizar el perfil del usuario autenticado.
+        
+        Recibe los datos a actualizar y aplica los cambios si son válidos.
+        Requiere autenticación.
+        """
+        serializer = ProfileSerializer(
+            request.user,
+            data=request.data,
+            partial=True
+        )
         if serializer.is_valid():
             serializer.save()
-            return Response({'message':'Perfil actualizado exitosamente'}, status=status.HTTP_200_OK)
+            return Response({
+                'message': 'Perfil actualizado exitosamente',
+                'user': serializer.data
+            }, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class LogoutView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        """
+        Endpoint para cerrar sesión.
+        
+        Invalida el token de refresco del usuario actual.
+        Requiere autenticación.
+        """
+        try:
+            refresh_token = request.data["refresh"]
+            token = RefreshToken(refresh_token)
+            token.blacklist()
+            return Response(
+                {'message': 'Sesión cerrada exitosamente'},
+                status=status.HTTP_200_OK
+            )
+        except Exception:
+            return Response(
+                {'error': 'Token inválido o expirado'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
