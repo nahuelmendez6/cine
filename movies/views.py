@@ -15,7 +15,7 @@ Cada vista está implementada como una APIView independiente, lo que permite:
 
 from xmlrpc.client import Fault
 from django.db.models import Q
-from rest_framework import viewsets, status
+from rest_framework import viewsets, status, filters
 from rest_framework.views import APIView
 from rest_framework.decorators import action
 from rest_framework.generics import get_object_or_404
@@ -25,6 +25,11 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from .permissions import IsAdminGroupUser
 from .models import Movie, Hall, Function
 from .serializers import MovieSerializer, HallSerializer, FunctionSerializer
+from django_filters.rest_framework import DjangoFilterBackend
+from core.decorators import cache_response
+import logging
+
+logger = logging.getLogger('cine')
 
 # Create your views here.
 class CreateMovieView(APIView):
@@ -340,3 +345,78 @@ class UpdateFunctionView(APIView):
                 'data': serializer.data
             }, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class MovieViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for viewing and editing movies.
+    """
+    queryset = Movie.objects.filter(is_active=True)
+    serializer_class = MovieSerializer
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['genre', 'release_date']
+    search_fields = ['title', 'description']
+    ordering_fields = ['release_date', 'rating']
+
+    def get_queryset(self):
+        """
+        Optionally restricts the returned movies,
+        by filtering against query parameters in the URL.
+        """
+        queryset = super().get_queryset()
+        
+        # Log the query being executed
+        logger.debug(f'Movie queryset: {queryset.query}')
+        
+        return queryset
+
+    @cache_response(timeout=300, key_prefix='movie_list')
+    def list(self, request, *args, **kwargs):
+        """
+        List all movies with caching.
+        """
+        return super().list(request, *args, **kwargs)
+
+    @cache_response(timeout=3600, key_prefix='movie_detail')
+    def retrieve(self, request, *args, **kwargs):
+        """
+        Retrieve a movie with caching.
+        """
+        return super().retrieve(request, *args, **kwargs)
+
+    def perform_create(self, serializer):
+        """
+        Create a new movie instance.
+        """
+        logger.info(f'Creating new movie: {serializer.validated_data.get("title")}')
+        super().perform_create(serializer)
+
+    def perform_update(self, serializer):
+        """
+        Update a movie instance.
+        """
+        logger.info(f'Updating movie: {serializer.instance.title}')
+        super().perform_update(serializer)
+
+    @action(detail=False, methods=['get'])
+    @cache_response(timeout=300, key_prefix='trending_movies')
+    def trending(self, request):
+        """
+        Get trending movies based on rating.
+        """
+        movies = self.get_queryset().order_by('-rating')[:10]
+        serializer = self.get_serializer(movies, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'])
+    @cache_response(timeout=300, key_prefix='upcoming_movies')
+    def upcoming(self, request):
+        """
+        Get upcoming movie releases.
+        """
+        from django.utils import timezone
+        movies = self.get_queryset().filter(
+            release_date__gt=timezone.now().date()
+        ).order_by('release_date')[:10]
+        serializer = self.get_serializer(movies, many=True)
+        return Response(serializer.data)

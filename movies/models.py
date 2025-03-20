@@ -8,8 +8,11 @@ Define las estructuras de datos para:
 """
 
 import datetime
-
 from django.db import models
+from django.utils.text import slugify
+import logging
+
+logger = logging.getLogger('cine')
 
 # Create your models here.
 class Movie(models.Model):
@@ -26,15 +29,15 @@ class Movie(models.Model):
             - etiqueta: nombre legible del género
 
         title (CharField): Título de la película
-        poster (ImageField): Imagen de portada de la película
-        synopsis (TextField): Descripción detallada de la película
+        slug (SlugField): Campo para generar URLs amigables para la película
+        description (TextField): Descripción detallada de la película
         duration (IntegerField): Duración en minutos
+        release_date (DateField): Fecha de inicio de exhibición
+        rating (DecimalField): Calificación de la película
         genre (CharField): Género de la película (seleccionable de GENRE_CHOICES)
-        classification (CharField): Clasificación por edad (ej: +18, R)
-        trailer_url (URLField): Enlace al trailer de la película
-        date_release (DateField): Fecha de inicio de exhibición
-        date_finish (DateField): Fecha de fin de exhibición
-        available (BooleanField): Estado de disponibilidad de la película
+        is_active (BooleanField): Estado de disponibilidad de la película
+        created_at (DateTimeField): Fecha y hora de creación del registro
+        updated_at (DateTimeField): Fecha y hora de última actualización del registro
     """
 
     GENRE_CHOICES = [
@@ -60,15 +63,34 @@ class Movie(models.Model):
     ]
 
     title = models.CharField(max_length=255)            # titulo de la pelicula
-    poster = models.ImageField(upload_to="posters/", null=True)    # posters/fotos de portada
-    synopsis = models.TextField()                       # breve texto descriptivo
-    duration = models.IntegerField()                    # duracion en minutos
+    slug = models.SlugField(max_length=255, unique=True, blank=True)
+    description = models.TextField()                       # breve texto descriptivo
+    duration = models.IntegerField(help_text="Duration in minutes")                    # duracion en minutos
+    release_date = models.DateField()                   # a partir de esta fecha la pelicula se mostrara al cliente
+    rating = models.DecimalField(max_digits=3, decimal_places=1)
     genre = models.CharField(max_length=50, choices=GENRE_CHOICES)            # genero (accion, comedia, animacion...)
-    classification = models.CharField(max_length=50, null=True)    # sistema de clasificacion (+18, R)
-    trailer_url = models.URLField(blank=True, null=True)    # Enlace a trailer
-    date_release = models.DateField()                   # a partir de esta fecha la pelicula se mostrara al cliente
-    date_finish = models.DateField()                    # a partir de esta fecha la pelicula se oculta al cliente
-    available = models.BooleanField(default=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['title']),
+            models.Index(fields=['release_date']),
+            models.Index(fields=['genre']),
+            models.Index(fields=['rating']),
+            models.Index(fields=['is_active']),
+        ]
+        ordering = ['-release_date']
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = slugify(self.title)
+        try:
+            super().save(*args, **kwargs)
+        except Exception as e:
+            logger.error(f'Error saving movie {self.title}: {str(e)}', exc_info=True)
+            raise
 
     def __str__(self):
         """Retorna el título de la película como representación en string."""
