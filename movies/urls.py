@@ -1,17 +1,14 @@
-from django.urls import path, include
-from rest_framework.routers import DefaultRouter
-
+from django.urls import path
 from .views import (
     CreateMovieView,
     ListMovieView,
     UpdateMovieView,
     CreateHallView,
     UpdateHallView,
-    FunctionViewSet
+    CreateFunctionView,
+    ListFunctionView,
+    UpdateFunctionView
 )
-
-router = DefaultRouter()
-router.register(r'functions', FunctionViewSet, basename='functions')
 
 urlpatterns = [
     # Rutas para películas
@@ -23,6 +20,8 @@ urlpatterns = [
     path('halls/create/', CreateHallView.as_view(), name='create-hall'),
     path('halls/update/<int:pk>/', UpdateHallView.as_view(), name='update-hall'),
     
-    # Rutas para funciones (mantenemos el router para el ViewSet)
-    path('', include(router.urls))
+    # Rutas para funciones
+    path('functions/create/', CreateFunctionView.as_view(), name='create-function'),
+    path('functions/list/', ListFunctionView.as_view(), name='list-functions'),
+    path('functions/update/<int:pk>/', UpdateFunctionView.as_view(), name='update-function'),
 ]

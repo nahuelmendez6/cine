@@ -17,7 +17,7 @@ class Notification(models.Model):
         ARCHIVED = 'ARCHIVED', 'Archived'
 
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='notifications')
-    title = models.CharField(max_length=200)
+    title = models.CharField(max_length=200,default="Default Title")
     message = models.TextField()
     notification_type = models.CharField(
         max_length=20,

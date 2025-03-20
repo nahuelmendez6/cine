@@ -1,5 +1,5 @@
 from datetime import timezone, timedelta
-
+from django.utils import timezone
 from django.db import models
 from django.contrib.auth.models import AbstractUser
 
@@ -20,7 +20,7 @@ class CustomUser(AbstractUser):
     failed_attempts = models.IntegerField(default=0)
     is_locked = models.BooleanField(default=False)
     lockout_time = models.DateTimeField(null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     
 
@@ -31,13 +31,13 @@ class CustomUser(AbstractUser):
 
 
     def increment_failed_attempts(self):
-        self.failed_attemps += 1
-        if self.failed_attemps >= 3:
+        self.failed_attempts += 1
+        if self.failed_attempts >= 3:
             self.lock()
         self.save()
 
     def reset_failed_attempts(self):
-        self.failed_attemps = 0
+        self.failed_attempts = 0
         self.save()
 
     def unlock(self):
@@ -45,5 +45,5 @@ class CustomUser(AbstractUser):
         if self.is_locked and self.lockout_time:
             if timezone.now() > self.lockout_time + timedelta(minutes=15):
                 self.is_locked = False
-                self.failed_attemps = 0
+                self.failed_attempts = 0
                 self.save()

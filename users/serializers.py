@@ -1,8 +1,10 @@
 from datetime import timedelta
-from django.contrib.auth import authenticate
+from django.contrib.auth import authenticate, get_user_model
 from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
+from django.contrib.auth.password_validation import validate_password
 
+User = get_user_model()
 
 from .models import CustomUser
 
@@ -116,5 +118,31 @@ class LoginSerializer(serializers.Serializer):
             raise serializers.ValidationError("Usuario no encontrado")
         
         
+
+    
+
+class ProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CustomUser
+        fields = ['id', 'username', 'email', 'is_admin', 'is_customer']
+        read_only_fields = ['id', 'is_admin', 'is_customer']
+
+    def validate_username(self, value):
+        user = self.context['request'].user
+        if CustomUser.objects.filter(username=value).exclude(pk=user.pk).exists():
+            raise serializers.ValidationError("Este nombre de usuario ya está en uso.")
+        return value
+
+    def validate_email(self, value):
+        user = self.context['request'].user
+        if CustomUser.objects.filter(email=value).exclude(pk=user.pk).exists():
+            raise serializers.ValidationError("Este correo electrónico ya está registrado.")
+        return value
+
+class UserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ('id', 'username', 'email', 'is_admin', 'is_customer')
+        read_only_fields = ('id', 'is_admin', 'is_customer')
 
     
